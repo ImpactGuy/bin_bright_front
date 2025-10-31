@@ -1,0 +1,102 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Get Shopify Variant ID</title>
+    <style>
+        body { font-family: Arial; padding: 20px; max-width: 600px; margin: 0 auto; }
+        input, button { padding: 10px; margin: 5px; width: 100%; }
+        #result { margin-top: 20px; padding: 15px; background: #f0f0f0; border-radius: 5px; }
+        .variant-id { font-size: 24px; color: #008000; font-weight: bold; margin: 10px 0; }
+    </style>
+</head>
+<body>
+    <h1>Get Shopify Variant ID</h1>
+    <p>Enter your Product ID (10492528755034) and click "Get Variant ID"</p>
+    
+    <input type="text" id="productId" placeholder="Product ID: 10492528755034" value="10492528755034">
+    <button onclick="getVariantId()">Get Variant ID</button>
+    
+    <div id="result"></div>
+
+    <script>
+        async function getVariantId() {
+            const productId = document.getElementById('productId').value;
+            const resultDiv = document.getElementById('result');
+            
+            if (!productId) {
+                resultDiv.innerHTML = '<p style="color: red;">Please enter Product ID</p>';
+                return;
+            }
+
+            resultDiv.innerHTML = '<p>Loading...</p>';
+
+            // GraphQL query to get variant ID
+            const query = `
+                query getProduct($id: ID!) {
+                    product(id: $id) {
+                        id
+                        title
+                        variants(first: 1) {
+                            edges {
+                                node {
+                                    id
+                                    title
+                                    price {
+                                        amount
+                                        currencyCode
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            `;
+
+            try {
+                const response = await fetch('https://tonnentext.myshopify.com/api/2024-01/graphql.json', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json',
+                        'X-Shopify-Storefront-Access-Token': '295a5f895236b55d1d87f073c8bd34ee'
+                    },
+                    body: JSON.stringify({
+                        query: query,
+                        variables: {
+                            id: `gid://shopify/Product/${productId}`
+                        }
+                    })
+                });
+
+                const data = await response.json();
+                
+                if (data.errors) {
+                    resultDiv.innerHTML = `<p style="color: red;">Error: ${data.errors[0].message}</p>`;
+                    return;
+                }
+
+                if (data.data?.product?.variants?.edges?.length > 0) {
+                    const variant = data.data.product.variants.edges[0].node;
+                    const variantId = variant.id.split('/').pop(); // Extract numeric ID from GID
+                    
+                    resultDiv.innerHTML = `
+                        <h3>✅ Variant ID Found!</h3>
+                        <p><strong>Product:</strong> ${data.data.product.title}</p>
+                        <p><strong>Variant:</strong> ${variant.title}</p>
+                        <p><strong>Price:</strong> ${variant.price.amount} ${variant.price.currencyCode}</p>
+                        <div class="variant-id">Variant ID: ${variantId}</div>
+                        <p>Copy this and add to your .env file:</p>
+                        <code style="background: white; padding: 10px; display: block; border: 1px solid #ddd;">
+                            VITE_SHOPIFY_LABEL_VARIANT_ID=${variantId}
+                        </code>
+                    `;
+                } else {
+                    resultDiv.innerHTML = '<p style="color: red;">No variants found for this product</p>';
+                }
+            } catch (error) {
+                resultDiv.innerHTML = `<p style="color: red;">Error: ${error.message}</p>`;
+            }
+        }
+    </script>
+</body>
+</html>
+
