@@ -148,14 +148,14 @@ export const LabelConfigurator = () => {
       return;
     }
 
-    const config: LabelConfiguration = {
+      const config: LabelConfiguration = {
       id: generateLabelId(),
       text: safeText,
       fontSizePt: fontSizePt,
       fontSizePx: fontPx,
       quantity: quantity,
       fontFamily: 'Impact, Haettenschweiler, "Arial Black", sans-serif',
-      color: "#facc15", // yellow-400
+        color: "#000000", // black for PDF
       timestamp: Date.now(),
     };
 
@@ -272,7 +272,7 @@ export const LabelConfigurator = () => {
               >
                 <span
                   ref={textRef}
-                  className="inline-block select-none align-middle text-yellow-400 drop-shadow-lg"
+                  className="inline-block select-none align-middle text-white drop-shadow-lg"
                   style={{ 
                     fontSize: `${fontPx}px`, 
                     lineHeight: 1.1,
