@@ -5,8 +5,9 @@
 
 // PDF Dimensions (in millimeters)
 export const PDF_DIMENSIONS = {
-  WIDTH_MM: 270,
+  WIDTH_MM: 280, // Increased by 10mm for order number area
   HEIGHT_MM: 66,
+  ORDER_NUMBER_WIDTH_MM: 10, // Left side area for order number
   TEXT_MAX_WIDTH_MM: 260,
   TEXT_MAX_HEIGHT_MM: 54,
 } as const;
