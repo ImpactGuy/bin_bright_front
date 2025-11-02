@@ -8,23 +8,15 @@ import { ShoppingCart, Minus, Plus, Loader2 } from "lucide-react";
 import binPreview from "@/assets/bin-preview-close.jpg";
 import { PDF_DIMENSIONS } from "@/types/label";
 import { generateLabelId, pxToPt } from "@/utils/labelCalculations";
-import { addToCart, getCartItems, getCartTotals, clearCart, PRICE_PER_UNIT } from "@/utils/cart";
-import { createCheckout, convertCartItemsToLineItems, getLabelProductVariantId, redirectToCheckout } from "@/services/shopifyStorefront";
-import { isShopifyConfigured } from "@/lib/shopifyConfig";
+import { addToCart, getCartItems, getCartTotals, PRICE_PER_UNIT } from "@/utils/cart";
+import { queryCart, getCartId } from "@/services/shopifyCart";
 import type { LabelConfiguration, CartItem } from "@/types/label";
 const STEP_PT = 5; // Step size in points for manual adjustments
 
 export const LabelConfigurator = () => {
   const [text, setText] = useState("MÜLLER");
   const [quantity, setQuantity] = useState(1);
-  const [cartItems, setCartItems] = useState<CartItem[]>(() => {
-    try {
-      return getCartItems();
-    } catch (error) {
-      console.error("Failed to initialize cart:", error);
-      return [];
-    }
-  });
+  const [cartItems, setCartItems] = useState<CartItem[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
   const { toast } = useToast();
 
@@ -127,18 +119,23 @@ export const LabelConfigurator = () => {
     return over;
   })();
 
-  // Sync cart items from localStorage
+  // Sync cart items from Shopify
   useEffect(() => {
-    const updateCart = () => {
-      setCartItems(getCartItems());
+    const updateCart = async () => {
+      try {
+        const items = await getCartItems();
+        setCartItems(items);
+      } catch (error) {
+        console.error("Failed to load cart:", error);
+      }
     };
     updateCart();
-    // Listen for storage changes (e.g., from other tabs)
-    window.addEventListener("storage", updateCart);
-    return () => window.removeEventListener("storage", updateCart);
+    // Listen for cart updates
+    window.addEventListener("cartUpdated", updateCart);
+    return () => window.removeEventListener("cartUpdated", updateCart);
   }, []);
 
-  const handleAddToCart = () => {
+  const handleAddToCart = async () => {
     if (!safeText.trim()) {
       toast({
         title: "Fehler",
@@ -148,28 +145,45 @@ export const LabelConfigurator = () => {
       return;
     }
 
-      const config: LabelConfiguration = {
+    const config: LabelConfiguration = {
       id: generateLabelId(),
       text: safeText,
       fontSizePt: fontSizePt,
       fontSizePx: fontPx,
       quantity: quantity,
       fontFamily: 'Impact, Haettenschweiler, "Arial Black", sans-serif',
-        color: "#000000", // black for PDF
+      color: "#000000", // black for PDF
       timestamp: Date.now(),
     };
 
-    addToCart(config);
-    setCartItems(getCartItems());
-    
-    toast({
-      title: "In den Warenkorb gelegt",
-      description: `${quantity}x "${safeText}" wurde hinzugefügt`,
-    });
+    try {
+      const cartItem = await addToCart(config);
+      if (!cartItem) {
+        throw new Error("Failed to add item to cart");
+      }
+      
+      const items = await getCartItems();
+      setCartItems(items);
+      
+      // Dispatch event to update cart button
+      window.dispatchEvent(new Event("cartUpdated"));
+      
+      toast({
+        title: "In den Warenkorb gelegt",
+        description: `${quantity}x "${safeText}" wurde hinzugefügt`,
+      });
+    } catch (error) {
+      console.error("Failed to add to cart:", error);
+      toast({
+        title: "Fehler",
+        description: "Der Artikel konnte nicht zum Warenkorb hinzugefügt werden",
+        variant: "destructive",
+      });
+    }
   };
 
   const handleCheckout = async () => {
-    const items = getCartItems();
+    const items = await getCartItems();
     if (items.length === 0) {
       toast({
         title: "Warenkorb leer",
@@ -179,63 +193,27 @@ export const LabelConfigurator = () => {
       return;
     }
 
-    // Check if Shopify is configured
-    if (!isShopifyConfigured()) {
-      toast({
-        title: "Konfiguration fehlt",
-        description: "Shopify Storefront API nicht konfiguriert. Bitte .env Datei überprüfen.",
-        variant: "destructive",
-      });
-      return;
-    }
-
-    // Get product variant ID
-    const variantId = getLabelProductVariantId();
-    if (!variantId) {
-      toast({
-        title: "Produkt nicht gefunden",
-        description: "Bitte erstellen Sie ein Produkt in Shopify und setzen Sie VITE_SHOPIFY_LABEL_VARIANT_ID",
-        variant: "destructive",
-      });
-      return;
-    }
-
     setIsProcessing(true);
 
     try {
-      // Convert cart items to Shopify line items
-      const lineItems = convertCartItemsToLineItems(items, variantId);
-
-      // Create Shopify checkout
-      const result = await createCheckout(lineItems);
-
-      if (result.error) {
-        toast({
-          title: "Fehler bei der Bestellung",
-          description: result.error,
-          variant: "destructive",
-        });
-        setIsProcessing(false);
-        return;
+      const cartId = getCartId();
+      if (!cartId) {
+        throw new Error("Cart not found");
       }
 
-      if (result.checkoutUrl) {
-        // Success - clear cart before redirecting to Shopify checkout
-        clearCart();
-        setCartItems([]);
-        
-        toast({
-          title: "Zur Kasse weitergeleitet",
-          description: "Sie werden jetzt zur Shopify Kasse weitergeleitet...",
-        });
-
-        // Small delay to show toast, then redirect
-        setTimeout(() => {
-          redirectToCheckout(result.checkoutUrl!);
-        }, 500);
-      } else {
-        throw new Error("Keine Checkout-URL erhalten");
+      const cart = await queryCart(cartId);
+      if (!cart || !cart.checkoutUrl) {
+        throw new Error("Checkout URL not available");
       }
+
+      toast({
+        title: "Zur Kasse weitergeleitet",
+        description: "Sie werden jetzt zur Shopify Kasse weitergeleitet...",
+      });
+
+      setTimeout(() => {
+        window.location.href = cart.checkoutUrl;
+      }, 500);
     } catch (error) {
       console.error("Checkout error:", error);
       toast({
@@ -247,7 +225,23 @@ export const LabelConfigurator = () => {
     }
   };
 
-  const { totalQuantity, totalPrice } = useMemo(() => getCartTotals(), [cartItems]);
+  const [totals, setTotals] = useState({ totalQuantity: 0, totalPrice: 0 });
+
+  useEffect(() => {
+    const loadTotals = async () => {
+      try {
+        const totals = await getCartTotals();
+        setTotals(totals);
+      } catch (error) {
+        console.error("Failed to load totals:", error);
+      }
+    };
+    loadTotals();
+    const interval = setInterval(loadTotals, 2000);
+    return () => clearInterval(interval);
+  }, [cartItems]);
+
+  const { totalQuantity, totalPrice } = totals;
 
   return (
     <div className="max-w-sm mx-auto px-4">

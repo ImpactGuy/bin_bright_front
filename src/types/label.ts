@@ -43,6 +43,8 @@ export interface CartItem extends LabelConfiguration {
   unitPrice: number;
   /** Total price (unitPrice * quantity) */
   totalPrice: number;
+  /** Shopify cart line ID (for cart mutations) */
+  shopifyLineId?: string;
 }
 
 export interface CheckoutData {

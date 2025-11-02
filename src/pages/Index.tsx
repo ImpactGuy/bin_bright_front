@@ -1,4 +1,5 @@
 import { LabelConfigurator } from "@/components/LabelConfigurator";
+import { CartButton } from "@/components/CartButton.tsx";
 
 const Index = () => {
   return (
@@ -9,6 +10,9 @@ const Index = () => {
           <LabelConfigurator />
         </div>
       </section>
+      
+      {/* Floating Cart Button */}
+      <CartButton />
     </div>
   );
 };

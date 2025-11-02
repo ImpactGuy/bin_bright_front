@@ -1,112 +1,134 @@
 /**
  * Cart Management Utilities
- * Handles cart storage, retrieval, and management
+ * Now uses Shopify Cart API instead of localStorage
  */
 
-import { CartItem, LabelConfiguration, CheckoutData } from "@/types/label";
+import { CartItem, LabelConfiguration } from "@/types/label";
+import {
+  getOrCreateCart,
+  addToCart as addToShopifyCart,
+  getCartItems as getShopifyCartItems,
+  getCartTotals as getShopifyCartTotals,
+  clearCart as clearShopifyCart,
+  queryCart,
+  removeCartLines,
+  updateCartLine,
+  getCartId,
+} from "@/services/shopifyCart";
 
 // Price per label unit (in EUR)
 export const PRICE_PER_UNIT = 12.9;
 
-const CART_STORAGE_KEY = "label_cart_items";
-
 /**
- * Save cart items to localStorage
+ * Add a label configuration to the Shopify cart
  */
-export function saveCartItems(items: CartItem[]): void {
+export async function addToCart(config: LabelConfiguration): Promise<CartItem | null> {
   try {
-    localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(items));
-  } catch (error) {
-    console.error("Failed to save cart items:", error);
-  }
-}
-
-/**
- * Load cart items from localStorage
- */
-export function loadCartItems(): CartItem[] {
-  try {
-    const stored = localStorage.getItem(CART_STORAGE_KEY);
-    if (stored) {
-      return JSON.parse(stored) as CartItem[];
+    const cartId = await getOrCreateCart();
+    if (!cartId) {
+      throw new Error("Failed to get or create cart");
     }
+
+    const cart = await addToShopifyCart(cartId, config);
+    if (!cart) {
+      throw new Error("Failed to add item to cart");
+    }
+
+    // Return the first item (we just added one)
+    if (cart.lines.edges.length > 0) {
+      const line = cart.lines.edges[cart.lines.edges.length - 1].node;
+      return {
+        ...config,
+        unitPrice: PRICE_PER_UNIT,
+        totalPrice: parseFloat(line.cost.totalAmount.amount) || PRICE_PER_UNIT * config.quantity,
+        shopifyLineId: line.id,
+      };
+    }
+
+    return null;
   } catch (error) {
-    console.error("Failed to load cart items:", error);
+    console.error("Failed to add to cart:", error);
+    return null;
   }
-  return [];
 }
 
 /**
- * Add a label configuration to the cart
+ * Remove an item from the cart by Shopify line ID
  */
-export function addToCart(config: LabelConfiguration): CartItem {
-  const cartItem: CartItem = {
-    ...config,
-    unitPrice: PRICE_PER_UNIT,
-    totalPrice: PRICE_PER_UNIT * config.quantity,
-  };
-  
-  const existingItems = loadCartItems();
-  existingItems.push(cartItem);
-  saveCartItems(existingItems);
-  
-  return cartItem;
-}
+export async function removeFromCart(shopifyLineId: string): Promise<void> {
+  try {
+    const cartId = getCartId();
+    if (!cartId) {
+      return;
+    }
 
-/**
- * Remove an item from the cart by ID
- */
-export function removeFromCart(itemId: string): void {
-  const items = loadCartItems();
-  const filtered = items.filter(item => item.id !== itemId);
-  saveCartItems(filtered);
+    await removeCartLines(cartId, [shopifyLineId]);
+  } catch (error) {
+    console.error("Failed to remove from cart:", error);
+    throw error;
+  }
 }
 
 /**
  * Update quantity of a cart item
  */
-export function updateCartItemQuantity(itemId: string, quantity: number): void {
-  const items = loadCartItems();
-  const item = items.find(i => i.id === itemId);
-  if (item) {
-    item.quantity = quantity;
-    item.totalPrice = item.unitPrice * quantity;
-    saveCartItems(items);
+export async function updateCartItemQuantity(shopifyLineId: string, quantity: number): Promise<void> {
+  try {
+    const cartId = getCartId();
+    if (!cartId) {
+      throw new Error("Cart not found");
+    }
+
+    await updateCartLine(cartId, shopifyLineId, quantity);
+  } catch (error) {
+    console.error("Failed to update cart item quantity:", error);
+    throw error;
   }
 }
 
 /**
- * Get all cart items
+ * Get all cart items from Shopify
  */
-export function getCartItems(): CartItem[] {
-  return loadCartItems();
+export async function getCartItems(): Promise<CartItem[]> {
+  try {
+    return await getShopifyCartItems();
+  } catch (error) {
+    console.error("Failed to get cart items:", error);
+    return [];
+  }
 }
 
 /**
  * Clear all cart items
  */
-export function clearCart(): void {
-  saveCartItems([]);
+export async function clearCart(): Promise<void> {
+  try {
+    await clearShopifyCart();
+  } catch (error) {
+    console.error("Failed to clear cart:", error);
+  }
 }
 
 /**
- * Calculate cart totals
+ * Calculate cart totals from Shopify
  */
-export function getCartTotals(): { totalQuantity: number; totalPrice: number } {
-  const items = getCartItems();
-  return {
-    totalQuantity: items.reduce((sum, item) => sum + item.quantity, 0),
-    totalPrice: items.reduce((sum, item) => sum + item.totalPrice, 0),
-  };
+export async function getCartTotals(): Promise<{ totalQuantity: number; totalPrice: number }> {
+  try {
+    return await getShopifyCartTotals();
+  } catch (error) {
+    console.error("Failed to get cart totals:", error);
+    return { totalQuantity: 0, totalPrice: 0 };
+  }
 }
 
 /**
  * Prepare checkout data for sending to Shopify
+ * Note: Now we use Shopify cart directly, so this might not be needed
  */
-export function prepareCheckoutData(customerInfo?: { email?: string; name?: string }): CheckoutData {
-  const items = getCartItems();
-  const { totalQuantity, totalPrice } = getCartTotals();
-  
+export async function prepareCheckoutData(customerInfo?: { email?: string; name?: string }) {
+  const items = await getCartItems();
+  const { totalQuantity, totalPrice } = await getCartTotals();
+
   return {
     items,
     totalQuantity,
@@ -114,4 +136,3 @@ export function prepareCheckoutData(customerInfo?: { email?: string; name?: stri
     customerInfo,
   };
 }
-
